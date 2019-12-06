@@ -1,6 +1,7 @@
 import argparse
 import webbrowser
 from io import StringIO
+from pprint import pprint
 from random import choice
 from time import sleep
 from urllib.parse import urlunsplit, urlencode, urljoin
@@ -104,19 +105,32 @@ class YandexParser:
         except (IndexError, AttributeError, KeyError) as e:
             raise NextPageError('No next page') from e
 
+    def _solve_captcha(self):
+        try:
+            captcha_form = self.doc.cssselect('form.form_error_no')[0]
+            img = self.doc.cssselect('div.captcha__image > img')
+            webbrowser.open(img[0].attrib['src'], new=0, autoraise=True)
+            params = dict(
+                key=captcha_form.cssselect('input.form__key')[0].attrib['value'],
+                retpath=captcha_form.cssselect('input.form__retpath')[0].attrib['value']
+            )
+            pprint(params)
+            params['rep'] = input('Input your captcha decision:')
+            # TODO  нужно добавить get параметр с captcha_decision к captcha_url
+            action_url = captcha_form.attrib['action']
+            captcha_url = urljoin(self.current_url, action_url)
+            captcha_url = urljoin(captcha_url, '?' + urlencode(params))
+            print(captcha_url)
+            response = self.session.get(captcha_url)
+            print(response.status_code)
+            print(response.text)
+        except Exception as e:
+            print(e)
+
     def _is_captcha_checking(self):
         captcha_form = self.doc.cssselect('form.form_error_no')
         if bool(captcha_form):
-            try:
-                img = self.doc.cssselect('div.captcha__image > img')
-                webbrowser.open(img[0].attrib['src'], new=0, autoraise=True)
-                captcha_decision = input('Input your captcha decision:')
-                captcha_url = urljoin(self.current_url, captcha_form[0].attrib['action'])
-                # TODO  нужно добавить get параметр с captcha_decision к captcha_url
-                self.session.get()
-
-            except Exception:
-                raise CaptchaError
+            raise CaptchaError
 
     def _make_request(self, url):
         self.current_url = url
@@ -124,6 +138,7 @@ class YandexParser:
 
         if response.status_code == 200:
             self.doc = parse(StringIO(response.text)).getroot()
+            print(response.text)
             if self._is_captcha_checking():
                 return False
             return True
@@ -138,10 +153,10 @@ class YandexParser:
 
         while len(self.links) < self.count:
             url = self._get_next_page_url()
+            sleep(choice(range(3, 10)))
             if self._make_request(url):
                 self.links.extend(self._extract_links_by_selector(self.item_selector))
             print(f'links={len(self.links)}')
-            sleep(choice(range(3, 10)))
 
         return self.links
 

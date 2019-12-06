@@ -1,35 +1,26 @@
 import argparse
-import webbrowser
-from io import StringIO
-from random import choice
-from time import sleep
-from urllib.parse import urlunsplit, urlencode, urljoin
-from lxml.html import parse
+from pprint import pprint
 
-import requests
+from parser.base import BaseParser
 
 
-class NextPageError(Exception):
-    pass
+class YandexParser(BaseParser):
+    scheme = 'https'
+    netloc = 'yandex.ru'
+    path = 'search'
+    query_param = 'text'
+    item_selector = 'li.serp-item > div.organic a.link.organic__url'
+    next_page_selector = 'div.pager > a.pager__item_kind_next'
+    captcha_selector = 'form.form_error_no'
 
 
-class LinksError(Exception):
-    pass
-
-
-class CaptchaError(Exception):
-    pass
-
-
-browser_header = {
-    'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:70.0) Gecko/20100101 Firefox/70.0',
-    'Accept': 'text/css,*/*;q=0.1',
-    'Accept-Language': 'ru,en-US;q=0.7,en;q=0.3',
-    'Connection': 'keep-alive',
-    'DNT': '1',
-    'Pragma': 'no-cache',
-    'Cache-Control': 'no-cache',
-}
+class GoogleParser(BaseParser):
+    scheme = 'https'
+    netloc = 'google.com'
+    path = 'search'
+    query_param = 'q'
+    item_selector = 'div.g > div > div.rc > div.r > a'
+    next_page_selector = 'table#nav td.navend > a'
 
 
 def parse_arguments():
@@ -62,93 +53,16 @@ def parse_arguments():
     return parser.parse_args()
 
 
-class YandexParser:
-    scheme = 'https'
-    netloc = 'yandex.ru'
-    path = 'search'
-    query_param = 'text'
-    item_selector = 'li.serp-item > div.organic a.link.organic__url'
-    next_page_selector = 'div.pager > a.pager__item_kind_next'
-
-    def __init__(self, count, recursive):
-        self.count = count
-        self.recursive = bool(recursive)
-        self.session = requests.session()
-        self.links = []
-        self.doc = None
-        self.current_url = None
-
-    def _build_init_url(self, query):
-        url = urlunsplit((
-            self.scheme,
-            self.netloc,
-            self.path,
-            urlencode({self.query_param: query}),
-            ''
-        ))
-        return url
-
-    def _extract_links_by_selector(self, selector):
-        link_list = self.doc.cssselect(selector)
-        try:
-            return [link.attrib['href'] for link in link_list]
-        except KeyError as e:
-            raise LinksError('No links') from e
-
-    def _get_next_page_url(self):
-        print('_get_next_page_url')
-        self.doc.make_links_absolute(self.current_url)
-        next_page_url = self.doc.cssselect(self.next_page_selector)
-        try:
-            return next_page_url[0].attrib['href']
-        except (IndexError, AttributeError, KeyError) as e:
-            raise NextPageError('No next page') from e
-
-    def _is_captcha_checking(self):
-        captcha_form = self.doc.cssselect('form.form_error_no')
-        if bool(captcha_form):
-            try:
-                img = self.doc.cssselect('div.captcha__image > img')
-                webbrowser.open(img[0].attrib['src'], new=0, autoraise=True)
-                captcha_decision = input('Input your captcha decision:')
-                captcha_url = urljoin(self.current_url, captcha_form[0].attrib['action'])
-                # TODO  нужно добавить get параметр с captcha_decision к captcha_url
-                self.session.get()
-
-            except Exception:
-                raise CaptchaError
-
-    def _make_request(self, url):
-        self.current_url = url
-        response = self.session.get(self.current_url, headers=browser_header)
-
-        if response.status_code == 200:
-            self.doc = parse(StringIO(response.text)).getroot()
-            if self._is_captcha_checking():
-                return False
-            return True
-
-        return False
-
-    def search(self, query):
-        url = self._build_init_url(query)
-        if self._make_request(url):
-            self.links.extend(self._extract_links_by_selector(self.item_selector))
-        sleep(choice(range(3, 10)))
-
-        while len(self.links) < self.count:
-            url = self._get_next_page_url()
-            if self._make_request(url):
-                self.links.extend(self._extract_links_by_selector(self.item_selector))
-            print(f'links={len(self.links)}')
-            sleep(choice(range(3, 10)))
-
-        return self.links
-
-
 if __name__ == '__main__':
     params = parse_arguments()
-    print(params)
-    s = YandexParser(params.count, params.recursive)
-    links = s.search(params.query)
-    print(links)
+
+    parsers_map = {
+        'yandex': YandexParser,
+        'google': GoogleParser
+    }
+    selected_parser = parsers_map.get(params.search_engine)
+    parser = selected_parser(params.count, params.recursive)
+
+    links = parser.search(params.query)
+    print(f'links={len(links)}')
+    pprint(links)

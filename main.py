@@ -2,6 +2,19 @@ import argparse
 from pprint import pprint
 
 from parser.base import BaseParser
+from parser.page_block import HtmlBlock
+
+
+class YaItemsBlock(HtmlBlock):
+    css_selector = 'li.serp-item > div.organic a.link.organic__url'
+
+
+class YaNextPageBlock(HtmlBlock):
+    css_selector = 'div.pager > a.pager__item_kind_next'
+
+
+class YaCaptchaBlock(HtmlBlock):
+    css_selector = 'form.form_error_no'
 
 
 class YandexParser(BaseParser):

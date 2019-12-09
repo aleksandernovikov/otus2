@@ -1,39 +1,40 @@
 import argparse
 from pprint import pprint
+from random import sample
 
-from parser.base import BaseParser
+from parser.base import BlockBaseParser
 from parser.page_block import HtmlBlock
+from parser.random_user_agent import RandomUserAgentHeader
+from parser.url_builder import URLBuilder
 
 
-class YaItemsBlock(HtmlBlock):
-    css_selector = 'li.serp-item > div.organic a.link.organic__url'
+class GoogleItemsBlock(HtmlBlock):
+    css_selector = 'div.g > div > div.rc > div.r > a'
 
 
-class YaNextPageBlock(HtmlBlock):
-    css_selector = 'div.pager > a.pager__item_kind_next'
+class GoogleNextPageBlock(HtmlBlock):
+    css_selector = 'table#nav td.navend > a'
 
 
-class YaCaptchaBlock(HtmlBlock):
-    css_selector = 'form.form_error_no'
+class GoogleParser(BlockBaseParser):
+    blocks: list = [
+        GoogleItemsBlock,
+        GoogleNextPageBlock,
+    ]
 
+    def __init__(self, count: int, recursive: bool):
+        super().__init__()
 
-class YandexParser(BaseParser):
-    scheme = 'https'
-    netloc = 'yandex.ru'
-    path = 'search'
-    query_param = 'text'
-    item_selector = 'li.serp-item > div.organic a.link.organic__url'
-    next_page_selector = 'div.pager > a.pager__item_kind_next'
-    captcha_selector = 'form.form_error_no'
+        self.count = count
+        self.recursive = recursive
 
+    def search(self, query: str) -> list:
+        init_url = URLBuilder(netloc='google.com', path='search', query={'q': query}).url()
 
-class GoogleParser(BaseParser):
-    scheme = 'https'
-    netloc = 'google.com'
-    path = 'search'
-    query_param = 'q'
-    item_selector = 'div.g > div > div.rc > div.r > a'
-    next_page_selector = 'table#nav td.navend > a'
+        r = self.do_work(init_url)
+        links = [link.attrib.get('href') for link in r['GoogleItemsBlock'] if link.attrib.get('href')]
+        print(links)
+        return links
 
 
 def parse_arguments():
@@ -67,15 +68,29 @@ def parse_arguments():
 
 
 if __name__ == '__main__':
+    header = RandomUserAgentHeader(
+        user_agents_list=['Mozilla / 5.0(X11; Ubuntu; Linux x86_64; rv: 70.0) Gecko / 20100101 Firefox / 70.0']
+    )
+    pprint(header.get_ua())
+
     params = parse_arguments()
 
     parsers_map = {
-        'yandex': YandexParser,
         'google': GoogleParser
     }
     selected_parser = parsers_map.get(params.search_engine)
     parser = selected_parser(params.count, params.recursive)
 
-    links = parser.search(params.query)
+    q_vars = [
+        'нормальный',
+        'пример',
+        'человек',
+        'плохой',
+        'хороший'
+    ]
+
+    query = " ".join(sample(q_vars, 2))
+
+    links = parser.search(query)
     print(f'links={len(links)}')
     pprint(links)

@@ -1,22 +1,79 @@
 from io import StringIO
+from pprint import pprint
 from urllib.parse import urlunsplit, urlencode
 
 import requests
 from lxml.html import parse
 
-from parser.page_block import HtmlBlock
+from parser.random_user_agent import RandomUserAgentHeader
+from .page_block import HtmlBlock
 from .exceptions import LinksError, NextPageError, CaptchaError
 from .utils import extract_links
 
-browser_header = {
-    'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:70.0) Gecko/20100101 Firefox/70.0',
-    'Accept': 'text/css,*/*;q=0.1',
-    'Accept-Language': 'ru,en-US;q=0.7,en;q=0.3',
-    'Connection': 'keep-alive',
-    'DNT': '1',
-    'Pragma': 'no-cache',
-    'Cache-Control': 'no-cache',
-}
+
+class BlockBaseParser:
+    blocks = []
+
+    def __init__(self):
+        self.session = requests.session()
+        self.doc = None
+        self.results = {}
+
+    def _make_request(self, url: str) -> bool:
+        header = RandomUserAgentHeader(
+            user_agents_list=[
+                'Mozilla / 5.0(X11; Ubuntu; Linux x86_64; rv: 70.0) Gecko / 20100101 Firefox / 70.0',
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.97 Safari/537.36'
+            ]
+        )
+        response = self.session.get(
+            url,
+            headers=header.get_ua(),
+            allow_redirects=False
+        )
+        response.raise_for_status()
+
+        print('cookie', response.cookies)
+        print('request headers')
+        pprint(response.request.headers)
+        print('response headers')
+        pprint(dict(response.headers))
+        print('\n', response.text)
+        for rec in response.history:
+            print(rec.url)
+
+        if response.headers['Location'] and response.status_code == 301:
+            response = self.session.get(
+                url,
+                headers=header.get_ua(),
+                allow_redirects=False
+            )
+        response.raise_for_status()
+
+        print('cookie', response.cookies)
+        print('request headers')
+        pprint(response.request.headers)
+        print('response headers')
+        pprint(dict(response.headers))
+        print('\n', response.text)
+        for rec in response.history:
+            print(rec.url)
+
+        self.doc = parse(StringIO(response.text)).getroot()
+        self.doc.make_links_absolute(url)
+        return True
+
+    def do_work(self, url: str):
+        """
+        BlockBaseParser work
+
+        :param url:
+        :return:
+        """
+        if self._make_request(url):
+            self.results = {block.__name__: block(self.doc).do_work() for block in self.blocks}
+
+        return self.results
 
 
 class BaseParser:
